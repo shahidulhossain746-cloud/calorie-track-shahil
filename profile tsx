@@ -1,0 +1,327 @@
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { User, Scale, Ruler, Target, Activity, MapPin, LogOut, Trash2 } from 'lucide-react-native';
+import { useUser } from '../../contexts/UserContext';
+import { useMeals } from '../../contexts/MealsContext';
+import { router } from 'expo-router';
+
+export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
+  const { user, clearUser } = useUser();
+  const { meals } = useMeals();
+
+  if (!user) return null;
+
+  const handleLogout = () => {
+    Alert.alert('Reset Profile', 'Are you sure you want to reset your profile? All data will be cleared.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Reset',
+        style: 'destructive',
+        onPress: async () => {
+          await clearUser();
+          router.replace('/onboarding');
+        },
+      },
+    ]);
+  };
+
+  const stats = [
+    {
+      icon: Scale,
+      label: 'Weight',
+      value: `${user.weight} kg`,
+      color: '#2563eb',
+    },
+    {
+      icon: Ruler,
+      label: 'Height',
+      value: `${user.height} cm`,
+      color: '#10b981',
+    },
+    {
+      icon: Target,
+      label: 'Daily Goal',
+      value: `${user.targetCalories} kcal`,
+      color: '#f59e0b',
+    },
+    {
+      icon: Trash2,
+      label: 'Meals Logged',
+      value: `${meals.length} total`,
+      color: '#8b5cf6',
+    },
+  ];
+
+  const goalLabels = {
+    lose: 'Lose Weight',
+    maintain: 'Maintain Weight',
+    gain: 'Gain Weight',
+  };
+
+  const activityLabels = {
+    sedentary: 'Sedentary',
+    light: 'Light Activity',
+    moderate: 'Moderate Activity',
+    active: 'Active',
+    very_active: 'Very Active',
+  };
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Profile</Text>
+      </View>
+
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.profileCard}>
+          <View style={styles.avatarContainer}>
+            <User size={48} color="#2563eb" />
+          </View>
+          <Text style={styles.userName}>{user.name}</Text>
+          <Text style={styles.userInfo}>
+            {user.age} years • {user.gender.charAt(0).toUpperCase() + user.gender.slice(1)}
+          </Text>
+        </View>
+
+        <View style={styles.statsGrid}>
+          {stats.map((stat) => {
+            const Icon = stat.icon;
+            return (
+              <View key={stat.label} style={styles.statCard}>
+                <View style={[styles.statIcon, { backgroundColor: `${stat.color}20` }]}>
+                  <Icon size={24} color={stat.color} />
+                </View>
+                <Text style={styles.statValue}>{stat.value}</Text>
+                <Text style={styles.statLabel}>{stat.label}</Text>
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Details</Text>
+          
+          <View style={styles.detailCard}>
+            <View style={styles.detailRow}>
+              <View style={styles.detailIconContainer}>
+                <MapPin size={20} color="#6b7280" />
+              </View>
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Country</Text>
+                <Text style={styles.detailValue}>{user.country}</Text>
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <View style={styles.detailIconContainer}>
+                <Target size={20} color="#6b7280" />
+              </View>
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Goal</Text>
+                <Text style={styles.detailValue}>{goalLabels[user.goal]}</Text>
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <View style={styles.detailIconContainer}>
+                <Activity size={20} color="#6b7280" />
+              </View>
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Activity Level</Text>
+                <Text style={styles.detailValue}>{activityLabels[user.activityLevel]}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <LogOut size={20} color="#ef4444" />
+          <Text style={styles.logoutText}>Reset Profile</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fafbfc',
+  },
+  header: {
+    padding: 24,
+    paddingBottom: 24,
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: '800' as const,
+    color: '#0f172a',
+    letterSpacing: -0.5,
+  },
+  content: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: 24,
+    paddingBottom: 40,
+    gap: 24,
+  },
+  profileCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 28,
+    padding: 36,
+    alignItems: 'center' as const,
+    gap: 14,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(37, 99, 235, 0.08)',
+  },
+  avatarContainer: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: '#dbeafe',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    marginBottom: 12,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  userName: {
+    fontSize: 28,
+    fontWeight: '800' as const,
+    color: '#0f172a',
+    letterSpacing: -0.5,
+  },
+  userInfo: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  statsGrid: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: 150,
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 22,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.04)',
+  },
+  statIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '800' as const,
+    color: '#111827',
+  },
+  statLabel: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: '#6b7280',
+  },
+  section: {
+    gap: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    color: '#111827',
+  },
+  detailCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    overflow: 'hidden' as const,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.04)',
+  },
+  detailRow: {
+    flexDirection: 'row' as const,
+    padding: 20,
+    gap: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  detailIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  detailContent: {
+    flex: 1,
+    gap: 4,
+  },
+  detailLabel: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: '#6b7280',
+  },
+  detailValue: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#111827',
+  },
+  logoutButton: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 12,
+    padding: 20,
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#ef4444',
+    shadowColor: '#ef4444',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  logoutText: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#ef4444',
+  },
+});
