@@ -1,0 +1,258 @@
+import { useState, useRef, useCallback, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Send, Loader } from 'lucide-react-native';
+import { useRorkAgent } from '@rork-ai/toolkit-sdk';
+import { useUser } from '../../contexts/UserContext';
+
+export default function CoachScreen() {
+  const insets = useSafeAreaInsets();
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [input, setInput] = useState<string>('');
+  const { user } = useUser();
+
+  const { messages, sendMessage, isLoading } = useRorkAgent({
+    tools: {},
+  });
+
+  useEffect(() => {
+    if (messages.length === 0 && user) {
+      sendMessage({
+        text: `I'm ${user.name}, a ${user.age} year old ${user.gender} from ${user.country}. I'm ${user.height}cm tall, weigh ${user.weight}kg, and my goal is to ${user.goal} weight. My activity level is ${user.activityLevel}. My daily calorie target is ${user.targetCalories} kcal. Please help me with nutrition and workout advice!`,
+      });
+    }
+  }, [messages.length, user, sendMessage]);
+
+  const handleSend = useCallback(() => {
+    if (input.trim()) {
+      sendMessage({ text: input.trim() });
+      setInput('');
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [input, sendMessage]);
+
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 300);
+  }, [messages]);
+
+  return (
+    <KeyboardAvoidingView
+      style={[styles.container, { paddingTop: insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>AI Nutrition Coach</Text>
+        <Text style={styles.headerSubtitle}>
+          Get personalized nutrition and workout advice
+        </Text>
+      </View>
+
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.messagesContainer}
+        contentContainerStyle={[
+          styles.messagesContent,
+          { paddingBottom: insets.bottom + 20 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        {messages.map((message) => (
+          <View key={message.id} style={styles.messageGroup}>
+            {message.parts.map((part, index) => {
+              if (part.type === 'text') {
+                const isUser = message.role === 'user';
+                return (
+                  <View
+                    key={`${message.id}-${index}`}
+                    style={[
+                      styles.messageBubble,
+                      isUser ? styles.userBubble : styles.assistantBubble,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.messageText,
+                        isUser ? styles.userText : styles.assistantText,
+                      ]}
+                    >
+                      {part.text}
+                    </Text>
+                  </View>
+                );
+              }
+              return null;
+            })}
+          </View>
+        ))}
+
+        {isLoading && (
+          <View style={[styles.messageBubble, styles.assistantBubble, styles.loadingBubble]}>
+            <Loader size={20} color="#6b7280" />
+            <Text style={styles.loadingText}>Thinking...</Text>
+          </View>
+        )}
+      </ScrollView>
+
+      <View style={[styles.inputContainer, { paddingBottom: insets.bottom + 10 }]}>
+        <TextInput
+          style={styles.input}
+          value={input}
+          onChangeText={setInput}
+          placeholder="Ask about nutrition, workouts, or meals..."
+          placeholderTextColor="#9ca3af"
+          multiline
+          maxLength={500}
+        />
+        <TouchableOpacity
+          style={[styles.sendButton, !input.trim() && styles.sendButtonDisabled]}
+          onPress={handleSend}
+          disabled={!input.trim() || isLoading}
+        >
+          <Send size={20} color={input.trim() ? '#ffffff' : '#9ca3af'} />
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fafbfc',
+  },
+  header: {
+    padding: 24,
+    paddingBottom: 24,
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: '800' as const,
+    color: '#0f172a',
+    marginBottom: 6,
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: '#64748b',
+    fontWeight: '500' as const,
+  },
+  messagesContainer: {
+    flex: 1,
+  },
+  messagesContent: {
+    padding: 16,
+    gap: 12,
+  },
+  messageGroup: {
+    gap: 8,
+  },
+  messageBubble: {
+    maxWidth: '80%',
+    padding: 18,
+    borderRadius: 20,
+  },
+  userBubble: {
+    alignSelf: 'flex-end' as const,
+    backgroundColor: '#2563eb',
+    borderBottomRightRadius: 6,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  assistantBubble: {
+    alignSelf: 'flex-start' as const,
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  messageText: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  userText: {
+    color: '#ffffff',
+  },
+  assistantText: {
+    color: '#111827',
+  },
+  loadingBubble: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  inputContainer: {
+    flexDirection: 'row' as const,
+    padding: 18,
+    gap: 14,
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#0f172a',
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  sendButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2563eb',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#e5e7eb',
+  },
+});
