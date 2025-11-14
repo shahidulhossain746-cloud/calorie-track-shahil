@@ -1,0 +1,71 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import createContextHook from '@nkzw/create-context-hook';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { WorkoutPlan } from '../types';
+
+const WORKOUT_STORAGE_KEY = '@calorie_tracker_workout';
+
+export const [WorkoutContext, useWorkout] = createContextHook(() => {
+  const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null);
+
+  const workoutQuery = useQuery({
+    queryKey: ['workout'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(WORKOUT_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (plan: WorkoutPlan) => {
+      await AsyncStorage.setItem(WORKOUT_STORAGE_KEY, JSON.stringify(plan));
+      return plan;
+    },
+    onSuccess: (data) => {
+      setWorkoutPlan(data);
+    },
+  });
+
+  const { mutate } = saveMutation;
+
+  useEffect(() => {
+    if (workoutQuery.data) {
+      const data = workoutQuery.data;
+      setWorkoutPlan({
+        ...data,
+        createdAt: new Date(data.createdAt),
+      });
+    }
+  }, [workoutQuery.data]);
+
+  const saveWorkoutPlan = useCallback((plan: WorkoutPlan) => {
+    mutate(plan);
+  }, [mutate]);
+
+  const markDayCompleted = useCallback((dayIndex: number) => {
+    if (!workoutPlan) return;
+
+    const updatedPlan = {
+      ...workoutPlan,
+      days: workoutPlan.days.map((day, idx) =>
+        idx === dayIndex ? { ...day, completed: true } : day
+      ),
+    };
+
+    mutate(updatedPlan);
+  }, [workoutPlan, mutate]);
+
+  const clearWorkoutPlan = useCallback(async () => {
+    await AsyncStorage.removeItem(WORKOUT_STORAGE_KEY);
+    setWorkoutPlan(null);
+  }, []);
+
+  return useMemo(() => ({
+    workoutPlan,
+    saveWorkoutPlan,
+    markDayCompleted,
+    clearWorkoutPlan,
+    isLoading: workoutQuery.isLoading,
+  }), [workoutPlan, saveWorkoutPlan, markDayCompleted, clearWorkoutPlan, workoutQuery.isLoading]);
+});
