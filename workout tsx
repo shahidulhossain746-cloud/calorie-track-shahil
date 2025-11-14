@@ -1,0 +1,550 @@
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Dumbbell, Home, Building2, Check, RefreshCw } from 'lucide-react-native';
+import { useUser } from '../../contexts/UserContext';
+import { useWorkout } from '../../contexts/WorkoutContext';
+import { useMutation } from '@tanstack/react-query';
+import { generateText } from '@rork-ai/toolkit-sdk';
+import { WorkoutPlan } from '../../types';
+import { useState } from 'react';
+import { useTodayProgress } from '../../contexts/MealsContext';
+
+export default function WorkoutScreen() {
+  const insets = useSafeAreaInsets();
+  const { user } = useUser();
+  const { workoutPlan, saveWorkoutPlan, markDayCompleted } = useWorkout();
+  const [selectedType, setSelectedType] = useState<'home' | 'gym' | null>(user?.workoutType || null);
+  const progress = useTodayProgress(user?.targetCalories || 2000);
+
+  const generatePlanMutation = useMutation({
+    mutationFn: async (type: 'home' | 'gym') => {
+      console.log('[Workout] Generating workout plan for type:', type);
+
+      if (!user) {
+        throw new Error('User profile not found');
+      }
+
+      const mealContext = progress.meals.length > 0
+        ? `Today's meals: ${progress.meals.map(m => `${m.name} (${m.calories} cal, ${m.protein}g protein)`).join(', ')}`
+        : 'No meals logged today';
+
+      const prompt = `Generate a personalized ${type} workout plan for a ${user.age}-year-old ${user.gender} who weighs ${user.weight}kg and is ${user.height}cm tall.
+Goal: ${user.goal === 'lose' ? 'weight loss' : user.goal === 'gain' ? 'muscle gain' : 'maintenance'}
+Activity level: ${user.activityLevel}
+Country: ${user.country}
+${mealContext}
+Target protein: ${user.targetProtein}g per day
+
+Create a 5-day workout plan with specific exercises. For ${type} workouts, ${type === 'gym' ? 'include equipment like dumbbells, barbells, machines' : 'use bodyweight and minimal equipment'}.
+Each day should have 4-6 exercises with sets and reps.
+
+Format as JSON:
+{
+  "name": "plan name",
+  "description": "brief description",
+  "days": [
+    {
+      "day": "Day 1",
+      "focus": "e.g., Upper Body",
+      "exercises": [
+        {
+          "name": "Exercise name",
+          "sets": 3,
+          "reps": "8-12",
+          "description": "How to perform"
+        }
+      ]
+    }
+  ]
+}`;
+
+      const response = await generateText({ messages: [{ role: 'user', content: prompt }] });
+      console.log('[Workout] AI Response:', response);
+
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('Could not parse workout plan');
+      }
+
+      const planData = JSON.parse(jsonMatch[0]);
+
+      const newPlan: WorkoutPlan = {
+        id: Date.now().toString(),
+        type,
+        name: planData.name,
+        description: planData.description,
+        days: planData.days,
+        createdAt: new Date(),
+      };
+
+      return newPlan;
+    },
+    onSuccess: (data) => {
+      saveWorkoutPlan(data);
+      Alert.alert('Success', 'Your personalized workout plan is ready!');
+    },
+    onError: (error) => {
+      console.error('[Workout] Generation error:', error);
+      Alert.alert('Error', 'Failed to generate workout plan. Please try again.');
+    },
+  });
+
+  const handleSelectType = (type: 'home' | 'gym') => {
+    setSelectedType(type);
+  };
+
+  const handleGeneratePlan = () => {
+    if (!selectedType) {
+      Alert.alert('Select Workout Type', 'Please choose between Home or Gym workout');
+      return;
+    }
+
+    if (!user) {
+      Alert.alert('Profile Required', 'Please complete your profile first');
+      return;
+    }
+
+    generatePlanMutation.mutate(selectedType);
+  };
+
+  const handleMarkCompleted = (dayIndex: number) => {
+    markDayCompleted(dayIndex);
+    Alert.alert('Great job!', 'Keep up the good work!');
+  };
+
+  if (!workoutPlan) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Workout Plan</Text>
+          <Text style={styles.headerSubtitle}>Choose your workout type</Text>
+        </View>
+
+        <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+          <View style={styles.typeSelection}>
+            <TouchableOpacity
+              style={[
+                styles.typeCard,
+                selectedType === 'home' && styles.typeCardSelected,
+              ]}
+              onPress={() => handleSelectType('home')}
+            >
+              <View style={[
+                styles.typeIconContainer,
+                selectedType === 'home' && styles.typeIconContainerSelected,
+              ]}>
+                <Home size={32} color={selectedType === 'home' ? '#ffffff' : '#2563eb'} />
+              </View>
+              <Text style={[
+                styles.typeTitle,
+                selectedType === 'home' && styles.typeTitleSelected,
+              ]}>Home Workout</Text>
+              <Text style={styles.typeDescription}>
+                Bodyweight exercises and minimal equipment
+              </Text>
+              {selectedType === 'home' && (
+                <View style={styles.selectedBadge}>
+                  <Check size={16} color="#ffffff" />
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.typeCard,
+                selectedType === 'gym' && styles.typeCardSelected,
+              ]}
+              onPress={() => handleSelectType('gym')}
+            >
+              <View style={[
+                styles.typeIconContainer,
+                selectedType === 'gym' && styles.typeIconContainerSelected,
+              ]}>
+                <Building2 size={32} color={selectedType === 'gym' ? '#ffffff' : '#2563eb'} />
+              </View>
+              <Text style={[
+                styles.typeTitle,
+                selectedType === 'gym' && styles.typeTitleSelected,
+              ]}>Gym Workout</Text>
+              <Text style={styles.typeDescription}>
+                Full gym equipment and machines
+              </Text>
+              {selectedType === 'gym' && (
+                <View style={styles.selectedBadge}>
+                  <Check size={16} color="#ffffff" />
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {user && (
+            <View style={styles.goalsCard}>
+              <Text style={styles.goalsTitle}>Your Goals</Text>
+              <View style={styles.goalsList}>
+                <View style={styles.goalItem}>
+                  <Text style={styles.goalLabel}>Daily Calories</Text>
+                  <Text style={styles.goalValue}>{user.targetCalories} kcal</Text>
+                </View>
+                <View style={styles.goalItem}>
+                  <Text style={styles.goalLabel}>Daily Protein</Text>
+                  <Text style={styles.goalValue}>{user.targetProtein}g</Text>
+                </View>
+                <View style={styles.goalItem}>
+                  <Text style={styles.goalLabel}>Goal</Text>
+                  <Text style={styles.goalValue}>
+                    {user.goal === 'lose' ? 'Lose Weight' : user.goal === 'gain' ? 'Gain Muscle' : 'Maintain'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.generateButton,
+              (!selectedType || generatePlanMutation.isPending) && styles.generateButtonDisabled,
+            ]}
+            onPress={handleGeneratePlan}
+            disabled={!selectedType || generatePlanMutation.isPending}
+          >
+            {generatePlanMutation.isPending ? (
+              <>
+                <ActivityIndicator color="#ffffff" />
+                <Text style={styles.generateButtonText}>Generating Your Plan...</Text>
+              </>
+            ) : (
+              <>
+                <Dumbbell size={24} color="#ffffff" />
+                <Text style={styles.generateButtonText}>Generate Workout Plan</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>{workoutPlan.name}</Text>
+          <Text style={styles.headerSubtitle}>{workoutPlan.description}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={() => {
+            Alert.alert(
+              'Generate New Plan',
+              'Are you sure you want to generate a new workout plan?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Yes', onPress: handleGeneratePlan },
+              ]
+            );
+          }}
+        >
+          <RefreshCw size={24} color="#2563eb" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {workoutPlan.days.map((day, dayIndex) => (
+          <View key={dayIndex} style={styles.dayCard}>
+            <View style={styles.dayHeader}>
+              <View>
+                <Text style={styles.dayTitle}>{day.day}</Text>
+                <Text style={styles.dayFocus}>{day.focus}</Text>
+              </View>
+              {!day.completed && (
+                <TouchableOpacity
+                  style={styles.completeButton}
+                  onPress={() => handleMarkCompleted(dayIndex)}
+                >
+                  <Check size={20} color="#ffffff" />
+                  <Text style={styles.completeButtonText}>Mark Done</Text>
+                </TouchableOpacity>
+              )}
+              {day.completed && (
+                <View style={styles.completedBadge}>
+                  <Check size={16} color="#10b981" />
+                  <Text style={styles.completedText}>Completed</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.exercisesList}>
+              {day.exercises.map((exercise, exIndex) => (
+                <View key={exIndex} style={styles.exerciseCard}>
+                  <Text style={styles.exerciseName}>{exercise.name}</Text>
+                  {exercise.sets && exercise.reps && (
+                    <Text style={styles.exerciseDetails}>
+                      {exercise.sets} sets × {exercise.reps} reps
+                    </Text>
+                  )}
+                  {exercise.duration && (
+                    <Text style={styles.exerciseDetails}>{exercise.duration}</Text>
+                  )}
+                  <Text style={styles.exerciseDescription}>{exercise.description}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fafbfc',
+  },
+  header: {
+    padding: 24,
+    paddingBottom: 24,
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'flex-start' as const,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: '800' as const,
+    color: '#0f172a',
+    marginBottom: 6,
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: '#64748b',
+    fontWeight: '500' as const,
+  },
+  refreshButton: {
+    padding: 8,
+  },
+  content: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: 24,
+    gap: 24,
+  },
+  typeSelection: {
+    gap: 16,
+  },
+  typeCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 28,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    position: 'relative' as const,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  typeCardSelected: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+    borderWidth: 3,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  typeIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    marginBottom: 16,
+  },
+  typeIconContainerSelected: {
+    backgroundColor: '#2563eb',
+  },
+  typeTitle: {
+    fontSize: 22,
+    fontWeight: '700' as const,
+    color: '#111827',
+    marginBottom: 8,
+  },
+  typeTitleSelected: {
+    color: '#2563eb',
+  },
+  typeDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+  selectedBadge: {
+    position: 'absolute' as const,
+    top: 20,
+    right: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#2563eb',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  goalsCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+  },
+  goalsTitle: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: '#111827',
+    marginBottom: 16,
+  },
+  goalsList: {
+    gap: 12,
+  },
+  goalItem: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    paddingVertical: 8,
+  },
+  goalLabel: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  goalValue: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#111827',
+  },
+  generateButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 20,
+    padding: 20,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 12,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  generateButtonDisabled: {
+    backgroundColor: '#9ca3af',
+  },
+  generateButtonText: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: '#ffffff',
+  },
+  dayCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 24,
+    gap: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.04)',
+  },
+  dayHeader: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'flex-start' as const,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  dayTitle: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    color: '#111827',
+    marginBottom: 4,
+  },
+  dayFocus: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  completeButton: {
+    backgroundColor: '#2563eb',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  completeButtonText: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: '#ffffff',
+  },
+  completedBadge: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#d1fae5',
+    borderRadius: 12,
+  },
+  completedText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#10b981',
+  },
+  exercisesList: {
+    gap: 12,
+  },
+  exerciseCard: {
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    gap: 6,
+  },
+  exerciseName: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#111827',
+  },
+  exerciseDetails: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#2563eb',
+  },
+  exerciseDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+});
