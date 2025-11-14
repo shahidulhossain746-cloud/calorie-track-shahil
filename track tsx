@@ -1,0 +1,520 @@
+import { useState, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  ScrollView,
+  Platform,
+  Image,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { Camera, Image as ImageIcon, X, Check } from 'lucide-react-native';
+import { useMutation } from '@tanstack/react-query';
+import { generateObject } from '@rork-ai/toolkit-sdk';
+import { z } from 'zod';
+import { useMeals } from '../../contexts/MealsContext';
+import { MealAnalysis } from '../../types';
+
+const mealSchema = z.object({
+  name: z.string().describe('Name of the meal or food items'),
+  calories: z.number().describe('Total calories in kcal'),
+  protein: z.number().describe('Protein in grams'),
+  carbs: z.number().describe('Carbohydrates in grams'),
+  fat: z.number().describe('Fat in grams'),
+  fiber: z.number().optional().describe('Fiber in grams if identifiable'),
+  notes: z.string().optional().describe('Additional notes about the meal'),
+});
+
+export default function TrackMealScreen() {
+  const insets = useSafeAreaInsets();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [showCamera, setShowCamera] = useState<boolean>(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [analyzedMeal, setAnalyzedMeal] = useState<z.infer<typeof mealSchema> | null>(null);
+  const cameraRef = useRef<CameraView>(null);
+  const { addMeal } = useMeals();
+
+  const analyzeMutation = useMutation({
+    mutationFn: async (imageUri: string) => {
+      console.log('[TrackMeal] Starting image analysis...');
+      
+      const manipulated = await ImageManipulator.manipulateAsync(
+        imageUri,
+        [{ resize: { width: 1024 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      const base64 = await fetch(manipulated.uri)
+        .then(res => res.blob())
+        .then(blob => new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        }));
+
+      console.log('[TrackMeal] Image prepared, analyzing with AI...');
+
+      const result = await generateObject({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Analyze this food image and provide detailed nutritional information. Be as accurate as possible based on visible portion sizes and ingredients.',
+              },
+              {
+                type: 'image',
+                image: base64,
+              },
+            ],
+          },
+        ],
+        schema: mealSchema,
+      });
+
+      console.log('[TrackMeal] Analysis complete:', result);
+      return result;
+    },
+    onSuccess: (data) => {
+      setAnalyzedMeal(data);
+    },
+    onError: (error) => {
+      console.error('[TrackMeal] Analysis error:', error);
+      Alert.alert('Analysis Failed', 'Could not analyze the image. Please try again.');
+    },
+  });
+
+  const { mutate: analyzeImage } = analyzeMutation;
+
+  const handleTakePhoto = useCallback(async () => {
+    if (!cameraPermission?.granted) {
+      const { granted } = await requestCameraPermission();
+      if (!granted) {
+        Alert.alert('Permission needed', 'Camera permission is required to take photos');
+        return;
+      }
+    }
+
+    setShowCamera(true);
+  }, [cameraPermission, requestCameraPermission]);
+
+  const handleCapture = useCallback(async () => {
+    if (!cameraRef.current) return;
+
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+      if (photo) {
+        console.log('[TrackMeal] Photo captured:', photo.uri);
+        setCapturedImage(photo.uri);
+        setShowCamera(false);
+        analyzeImage(photo.uri);
+      }
+    } catch (error) {
+      console.error('[TrackMeal] Capture error:', error);
+      Alert.alert('Error', 'Failed to capture photo');
+    }
+  }, [analyzeImage]);
+
+  const handlePickImage = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'We need permission to access your photos');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images' as any,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      console.log('[TrackMeal] Image picked:', result.assets[0].uri);
+      setCapturedImage(result.assets[0].uri);
+      analyzeImage(result.assets[0].uri);
+    }
+  }, [analyzeImage]);
+
+  const handleReset = useCallback(() => {
+    setCapturedImage(null);
+    setAnalyzedMeal(null);
+  }, []);
+
+  const handleSaveMeal = useCallback(() => {
+    if (!analyzedMeal || !capturedImage) return;
+
+    const meal: MealAnalysis = {
+      id: Date.now().toString(),
+      imageUri: capturedImage,
+      timestamp: new Date(),
+      ...analyzedMeal,
+    };
+
+    console.log('[TrackMeal] Saving meal:', meal);
+    addMeal(meal);
+    Alert.alert('Success', 'Meal added to your diary!', [
+      { text: 'OK', onPress: handleReset },
+    ]);
+  }, [analyzedMeal, capturedImage, addMeal, handleReset]);
+
+  if (showCamera && Platform.OS !== 'web') {
+    return (
+      <View style={styles.cameraContainer}>
+        <CameraView
+          ref={cameraRef}
+          style={styles.camera}
+          facing={'back' as CameraType}
+        >
+          <View style={[styles.cameraOverlay, { paddingTop: insets.top + 20 }]}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowCamera(false)}
+            >
+              <X size={32} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={[styles.cameraControls, { paddingBottom: insets.bottom + 30 }]}>
+            <TouchableOpacity style={styles.captureButton} onPress={handleCapture}>
+              <View style={styles.captureButtonInner} />
+            </TouchableOpacity>
+          </View>
+        </CameraView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Track Your Meal</Text>
+        <Text style={styles.headerSubtitle}>Take or upload a photo of your food</Text>
+      </View>
+
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+        {!capturedImage ? (
+          <View style={styles.uploadSection}>
+            <TouchableOpacity style={styles.actionButton} onPress={handleTakePhoto}>
+              <View style={styles.actionIconContainer}>
+                <Camera size={32} color="#2563eb" />
+              </View>
+              <Text style={styles.actionButtonText}>Take Photo</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionButton} onPress={handlePickImage}>
+              <View style={styles.actionIconContainer}>
+                <ImageIcon size={32} color="#2563eb" />
+              </View>
+              <Text style={styles.actionButtonText}>Choose from Gallery</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.resultSection}>
+            <Image source={{ uri: capturedImage }} style={styles.previewImage} />
+
+            {analyzeMutation.isPending && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#2563eb" />
+                <Text style={styles.loadingText}>Analyzing your meal...</Text>
+              </View>
+            )}
+
+            {analyzedMeal && (
+              <View style={styles.nutritionCard}>
+                <Text style={styles.mealName}>{analyzedMeal.name}</Text>
+                
+                <View style={styles.macrosGrid}>
+                  <View style={styles.macroItem}>
+                    <Text style={styles.macroValue}>{analyzedMeal.calories}</Text>
+                    <Text style={styles.macroLabel}>Calories</Text>
+                  </View>
+                  <View style={styles.macroItem}>
+                    <Text style={styles.macroValue}>{analyzedMeal.protein}g</Text>
+                    <Text style={styles.macroLabel}>Protein</Text>
+                  </View>
+                  <View style={styles.macroItem}>
+                    <Text style={styles.macroValue}>{analyzedMeal.carbs}g</Text>
+                    <Text style={styles.macroLabel}>Carbs</Text>
+                  </View>
+                  <View style={styles.macroItem}>
+                    <Text style={styles.macroValue}>{analyzedMeal.fat}g</Text>
+                    <Text style={styles.macroLabel}>Fat</Text>
+                  </View>
+                </View>
+
+                {analyzedMeal.notes && (
+                  <View style={styles.notesContainer}>
+                    <Text style={styles.notesLabel}>Notes:</Text>
+                    <Text style={styles.notesText}>{analyzedMeal.notes}</Text>
+                  </View>
+                )}
+
+                <View style={styles.actions}>
+                  <TouchableOpacity
+                    style={[styles.button, styles.buttonSecondary]}
+                    onPress={handleReset}
+                  >
+                    <X size={20} color="#374151" />
+                    <Text style={styles.buttonSecondaryText}>Retake</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.button, styles.buttonPrimary]}
+                    onPress={handleSaveMeal}
+                  >
+                    <Check size={20} color="#ffffff" />
+                    <Text style={styles.buttonPrimaryText}>Save Meal</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fafbfc',
+  },
+  header: {
+    padding: 24,
+    paddingBottom: 24,
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: '800' as const,
+    color: '#0f172a',
+    marginBottom: 6,
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: '#64748b',
+    fontWeight: '500' as const,
+  },
+  content: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: 24,
+  },
+  uploadSection: {
+    gap: 16,
+  },
+  actionButton: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    padding: 28,
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#e0e7ff',
+    gap: 18,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  actionIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: '#dbeafe',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+  },
+  actionButtonText: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    color: '#0f172a',
+    letterSpacing: -0.3,
+  },
+  resultSection: {
+    gap: 20,
+  },
+  previewImage: {
+    width: '100%',
+    height: 320,
+    borderRadius: 24,
+    backgroundColor: '#f1f5f9',
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center' as const,
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '600' as const,
+  },
+  nutritionCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 28,
+    gap: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  mealName: {
+    fontSize: 28,
+    fontWeight: '800' as const,
+    color: '#0f172a',
+    textAlign: 'center' as const,
+    letterSpacing: -0.5,
+  },
+  macrosGrid: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+  },
+  macroItem: {
+    flex: 1,
+    minWidth: 70,
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    alignItems: 'center' as const,
+  },
+  macroValue: {
+    fontSize: 24,
+    fontWeight: '700' as const,
+    color: '#2563eb',
+    marginBottom: 4,
+  },
+  macroLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '600' as const,
+  },
+  notesContainer: {
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    gap: 8,
+  },
+  notesLabel: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: '#374151',
+  },
+  notesText: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+  actions: {
+    flexDirection: 'row' as const,
+    gap: 12,
+  },
+  button: {
+    flex: 1,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    padding: 18,
+    borderRadius: 16,
+    gap: 8,
+  },
+  buttonPrimary: {
+    backgroundColor: '#2563eb',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  buttonPrimaryText: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#ffffff',
+  },
+  buttonSecondary: {
+    backgroundColor: '#f3f4f6',
+  },
+  buttonSecondaryText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#374151',
+  },
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  camera: {
+    flex: 1,
+  },
+  cameraOverlay: {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    flexDirection: 'row' as const,
+    justifyContent: 'flex-end' as const,
+  },
+  closeButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  cameraControls: {
+    position: 'absolute' as const,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 30,
+    alignItems: 'center' as const,
+  },
+  captureButton: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: '#ffffff',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    borderWidth: 5,
+    borderColor: '#2563eb',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+  },
+  captureButtonInner: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: '#2563eb',
+  },
+});
