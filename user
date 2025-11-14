@@ -1,0 +1,100 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import createContextHook from '@nkzw/create-context-hook';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { UserProfile } from '../types';
+
+const USER_STORAGE_KEY = '@calorie_tracker_user';
+
+export const [UserContext, useUser] = createContextHook(() => {
+  const [user, setUser] = useState<UserProfile | null>(null);
+
+  const userQuery = useQuery({
+    queryKey: ['user'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(USER_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (profile: UserProfile) => {
+      await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(profile));
+      return profile;
+    },
+    onSuccess: (data) => {
+      setUser(data);
+    },
+  });
+
+  const { mutate } = saveMutation;
+
+  useEffect(() => {
+    if (userQuery.data) {
+      setUser(userQuery.data);
+    }
+  }, [userQuery.data]);
+
+  const saveUser = useCallback((profile: UserProfile) => {
+    const targetCalories = calculateTargetCalories(profile);
+    const targetProtein = calculateTargetProtein(profile);
+    mutate({ ...profile, targetCalories, targetProtein });
+  }, [mutate]);
+
+  const clearUser = useCallback(async () => {
+    await AsyncStorage.removeItem(USER_STORAGE_KEY);
+    setUser(null);
+  }, []);
+
+  const updateProfilePicture = useCallback((uri: string) => {
+    if (!user) return;
+    mutate({ ...user, profilePictureUri: uri });
+  }, [user, mutate]);
+
+  return useMemo(() => ({
+    user,
+    saveUser,
+    clearUser,
+    updateProfilePicture,
+    isLoading: userQuery.isLoading,
+    isSaving: saveMutation.isPending,
+  }), [user, saveUser, clearUser, updateProfilePicture, userQuery.isLoading, saveMutation.isPending]);
+});
+
+function calculateTargetCalories(profile: UserProfile): number {
+  let bmr: number;
+  
+  if (profile.gender === 'male') {
+    bmr = 10 * profile.weight + 6.25 * profile.height - 5 * profile.age + 5;
+  } else {
+    bmr = 10 * profile.weight + 6.25 * profile.height - 5 * profile.age - 161;
+  }
+
+  const activityMultipliers = {
+    sedentary: 1.2,
+    light: 1.375,
+    moderate: 1.55,
+    active: 1.725,
+    very_active: 1.9,
+  };
+
+  const tdee = bmr * activityMultipliers[profile.activityLevel];
+
+  const goalAdjustments = {
+    lose: -500,
+    maintain: 0,
+    gain: 300,
+  };
+
+  return Math.round(tdee + goalAdjustments[profile.goal]);
+}
+
+function calculateTargetProtein(profile: UserProfile): number {
+  const proteinMultipliers = {
+    lose: 2.2,
+    maintain: 1.8,
+    gain: 2.0,
+  };
+  
+  return Math.round(profile.weight * proteinMultipliers[profile.goal]);
+}
