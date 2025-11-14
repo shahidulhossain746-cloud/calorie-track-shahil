@@ -1,0 +1,614 @@
+import { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  Platform,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Stack, router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { User, Camera, Activity, Target } from 'lucide-react-native';
+import { useUser } from '../contexts/UserContext';
+import { COUNTRIES } from '../constants/countries';
+import { UserProfile } from '../types';
+
+type Step = 1 | 2 | 3 | 4;
+
+export default function OnboardingScreen() {
+  const insets = useSafeAreaInsets();
+  const { saveUser, isSaving } = useUser();
+  const [step, setStep] = useState<Step>(1);
+  const [formData, setFormData] = useState<Partial<UserProfile>>({
+    name: '',
+    age: 0,
+    gender: 'male',
+    height: 0,
+    weight: 0,
+    country: 'Bangladesh',
+    goal: 'maintain',
+    activityLevel: 'moderate',
+  });
+
+  const updateField = useCallback((field: keyof UserProfile, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  }, []);
+
+  const handlePhotoUpload = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'We need permission to access your photos');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images' as any,
+      allowsEditing: true,
+      aspect: [3, 4],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      updateField('physiquePhotoUri', result.assets[0].uri);
+    }
+  }, [updateField]);
+
+  const handleNext = useCallback(() => {
+    if (step < 4) {
+      setStep((prev) => (prev + 1) as Step);
+    } else {
+      if (!formData.name || !formData.age || !formData.height || !formData.weight) {
+        Alert.alert('Missing information', 'Please fill in all required fields');
+        return;
+      }
+
+      saveUser(formData as UserProfile);
+      router.replace('/(tabs)');
+    }
+  }, [step, formData, saveUser]);
+
+  const handleBack = useCallback(() => {
+    if (step > 1) {
+      setStep((prev) => (prev - 1) as Step);
+    }
+  }, [step]);
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <Stack.Screen options={{ headerShown: false }} />
+      
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <View style={styles.progressBar}>
+            {[1, 2, 3, 4].map((s) => (
+              <View
+                key={s}
+                style={[
+                  styles.progressDot,
+                  s <= step && styles.progressDotActive,
+                ]}
+              />
+            ))}
+          </View>
+          <Text style={styles.stepText}>Step {step} of 4</Text>
+        </View>
+
+        {step === 1 && (
+          <View style={styles.stepContainer}>
+            <View style={styles.iconContainer}>
+              <User size={48} color="#2563eb" />
+            </View>
+            <Text style={styles.title}>Basic Information</Text>
+            <Text style={styles.subtitle}>Let&apos;s start with some basics</Text>
+
+            <View style={styles.form}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Name</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.name}
+                  onChangeText={(text) => updateField('name', text)}
+                  placeholder="Enter your name"
+                  placeholderTextColor="#9ca3af"
+                />
+              </View>
+
+              <View style={styles.row}>
+                <View style={[styles.inputGroup, styles.flex1]}>
+                  <Text style={styles.label}>Age</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={formData.age ? String(formData.age) : ''}
+                    onChangeText={(text) => updateField('age', parseInt(text) || 0)}
+                    placeholder="25"
+                    keyboardType="number-pad"
+                    placeholderTextColor="#9ca3af"
+                  />
+                </View>
+
+                <View style={[styles.inputGroup, styles.flex1]}>
+                  <Text style={styles.label}>Gender</Text>
+                  <View style={styles.genderButtons}>
+                    {(['male', 'female'] as const).map((g) => (
+                      <TouchableOpacity
+                        key={g}
+                        style={[
+                          styles.genderButton,
+                          formData.gender === g && styles.genderButtonActive,
+                        ]}
+                        onPress={() => updateField('gender', g)}
+                      >
+                        <Text
+                          style={[
+                            styles.genderButtonText,
+                            formData.gender === g && styles.genderButtonTextActive,
+                          ]}
+                        >
+                          {g.charAt(0).toUpperCase() + g.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Country</Text>
+                <ScrollView style={styles.countryScroll} nestedScrollEnabled>
+                  {COUNTRIES.map((country) => (
+                    <TouchableOpacity
+                      key={country}
+                      style={[
+                        styles.countryOption,
+                        formData.country === country && styles.countryOptionActive,
+                      ]}
+                      onPress={() => updateField('country', country)}
+                    >
+                      <Text
+                        style={[
+                          styles.countryText,
+                          formData.country === country && styles.countryTextActive,
+                        ]}
+                      >
+                        {country}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {step === 2 && (
+          <View style={styles.stepContainer}>
+            <View style={styles.iconContainer}>
+              <Activity size={48} color="#2563eb" />
+            </View>
+            <Text style={styles.title}>Body Metrics</Text>
+            <Text style={styles.subtitle}>Tell us about your physique</Text>
+
+            <View style={styles.form}>
+              <View style={styles.row}>
+                <View style={[styles.inputGroup, styles.flex1]}>
+                  <Text style={styles.label}>Height (cm)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={formData.height ? String(formData.height) : ''}
+                    onChangeText={(text) => updateField('height', parseInt(text) || 0)}
+                    placeholder="170"
+                    keyboardType="number-pad"
+                    placeholderTextColor="#9ca3af"
+                  />
+                </View>
+
+                <View style={[styles.inputGroup, styles.flex1]}>
+                  <Text style={styles.label}>Weight (kg)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={formData.weight ? String(formData.weight) : ''}
+                    onChangeText={(text) => updateField('weight', parseInt(text) || 0)}
+                    placeholder="70"
+                    keyboardType="number-pad"
+                    placeholderTextColor="#9ca3af"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Physique Photo (Optional)</Text>
+                <TouchableOpacity style={styles.photoButton} onPress={handlePhotoUpload}>
+                  <Camera size={24} color="#2563eb" />
+                  <Text style={styles.photoButtonText}>
+                    {formData.physiquePhotoUri ? 'Photo Added' : 'Upload Photo'}
+                  </Text>
+                </TouchableOpacity>
+                {formData.physiquePhotoUri && (
+                  <Text style={styles.photoNote}>✓ Photo uploaded successfully</Text>
+                )}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {step === 3 && (
+          <View style={styles.stepContainer}>
+            <View style={styles.iconContainer}>
+              <Target size={48} color="#2563eb" />
+            </View>
+            <Text style={styles.title}>Your Goal</Text>
+            <Text style={styles.subtitle}>What do you want to achieve?</Text>
+
+            <View style={styles.form}>
+              <View style={styles.goalOptions}>
+                {[
+                  { key: 'lose' as const, label: 'Lose Weight', desc: 'Reduce body fat' },
+                  { key: 'maintain' as const, label: 'Maintain', desc: 'Stay healthy' },
+                  { key: 'gain' as const, label: 'Gain Weight', desc: 'Build muscle' },
+                ].map((goal) => (
+                  <TouchableOpacity
+                    key={goal.key}
+                    style={[
+                      styles.goalCard,
+                      formData.goal === goal.key && styles.goalCardActive,
+                    ]}
+                    onPress={() => updateField('goal', goal.key)}
+                  >
+                    <Text
+                      style={[
+                        styles.goalLabel,
+                        formData.goal === goal.key && styles.goalLabelActive,
+                      ]}
+                    >
+                      {goal.label}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.goalDesc,
+                        formData.goal === goal.key && styles.goalDescActive,
+                      ]}
+                    >
+                      {goal.desc}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {step === 4 && (
+          <View style={styles.stepContainer}>
+            <View style={styles.iconContainer}>
+              <Activity size={48} color="#2563eb" />
+            </View>
+            <Text style={styles.title}>Activity Level</Text>
+            <Text style={styles.subtitle}>How active are you?</Text>
+
+            <View style={styles.form}>
+              <View style={styles.activityOptions}>
+                {[
+                  { key: 'sedentary' as const, label: 'Sedentary', desc: 'Little or no exercise' },
+                  { key: 'light' as const, label: 'Light', desc: 'Exercise 1-3 times/week' },
+                  { key: 'moderate' as const, label: 'Moderate', desc: 'Exercise 4-5 times/week' },
+                  { key: 'active' as const, label: 'Active', desc: 'Daily exercise' },
+                  { key: 'very_active' as const, label: 'Very Active', desc: 'Intense daily exercise' },
+                ].map((activity) => (
+                  <TouchableOpacity
+                    key={activity.key}
+                    style={[
+                      styles.activityCard,
+                      formData.activityLevel === activity.key && styles.activityCardActive,
+                    ]}
+                    onPress={() => updateField('activityLevel', activity.key)}
+                  >
+                    <Text
+                      style={[
+                        styles.activityLabel,
+                        formData.activityLevel === activity.key && styles.activityLabelActive,
+                      ]}
+                    >
+                      {activity.label}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.activityDesc,
+                        formData.activityLevel === activity.key && styles.activityDescActive,
+                      ]}
+                    >
+                      {activity.desc}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
+      </ScrollView>
+
+      <View style={styles.footer}>
+        {step > 1 && (
+          <TouchableOpacity
+            style={[styles.button, styles.buttonSecondary]}
+            onPress={handleBack}
+          >
+            <Text style={styles.buttonSecondaryText}>Back</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity
+          style={[styles.button, styles.buttonPrimary, step === 1 && styles.buttonFull]}
+          onPress={handleNext}
+          disabled={isSaving}
+        >
+          <Text style={styles.buttonPrimaryText}>
+            {isSaving ? 'Saving...' : step === 4 ? 'Get Started' : 'Next'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 24,
+    paddingTop: 60,
+  },
+  header: {
+    marginBottom: 32,
+  },
+  progressBar: {
+    flexDirection: 'row' as const,
+    gap: 8,
+    marginBottom: 12,
+  },
+  progressDot: {
+    flex: 1,
+    height: 4,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 2,
+  },
+  progressDotActive: {
+    backgroundColor: '#2563eb',
+  },
+  stepText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center' as const,
+  },
+  stepContainer: {
+    marginBottom: 32,
+  },
+  iconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    marginBottom: 24,
+    alignSelf: 'center' as const,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '700' as const,
+    color: '#111827',
+    textAlign: 'center' as const,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6b7280',
+    textAlign: 'center' as const,
+    marginBottom: 32,
+  },
+  form: {
+    gap: 20,
+  },
+  inputGroup: {
+    gap: 8,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#374151',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: '#111827',
+    backgroundColor: '#f9fafb',
+  },
+  row: {
+    flexDirection: 'row' as const,
+    gap: 12,
+  },
+  flex1: {
+    flex: 1,
+  },
+  genderButtons: {
+    flexDirection: 'row' as const,
+    gap: 8,
+  },
+  genderButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#f9fafb',
+    alignItems: 'center' as const,
+  },
+  genderButtonActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+  },
+  genderButtonText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#6b7280',
+  },
+  genderButtonTextActive: {
+    color: '#2563eb',
+  },
+  countryScroll: {
+    maxHeight: 200,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    backgroundColor: '#f9fafb',
+  },
+  countryOption: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  countryOptionActive: {
+    backgroundColor: '#eff6ff',
+  },
+  countryText: {
+    fontSize: 16,
+    color: '#374151',
+  },
+  countryTextActive: {
+    color: '#2563eb',
+    fontWeight: '600' as const,
+  },
+  photoButton: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 12,
+    padding: 20,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#2563eb',
+    borderStyle: 'dashed' as const,
+    backgroundColor: '#f9fafb',
+  },
+  photoButtonText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#2563eb',
+  },
+  photoNote: {
+    fontSize: 14,
+    color: '#10b981',
+    textAlign: 'center' as const,
+    marginTop: 8,
+  },
+  goalOptions: {
+    gap: 12,
+  },
+  goalCard: {
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f9fafb',
+  },
+  goalCardActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+  },
+  goalLabel: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: '#374151',
+    marginBottom: 4,
+  },
+  goalLabelActive: {
+    color: '#2563eb',
+  },
+  goalDesc: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  goalDescActive: {
+    color: '#2563eb',
+  },
+  activityOptions: {
+    gap: 12,
+  },
+  activityCard: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f9fafb',
+  },
+  activityCardActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+  },
+  activityLabel: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#374151',
+    marginBottom: 4,
+  },
+  activityLabelActive: {
+    color: '#2563eb',
+  },
+  activityDesc: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
+  activityDescActive: {
+    color: '#2563eb',
+  },
+  footer: {
+    flexDirection: 'row' as const,
+    gap: 12,
+    padding: 24,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    backgroundColor: '#ffffff',
+  },
+  button: {
+    flex: 1,
+    padding: 18,
+    borderRadius: 12,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  buttonFull: {
+    flex: 1,
+  },
+  buttonPrimary: {
+    backgroundColor: '#2563eb',
+  },
+  buttonPrimaryText: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#ffffff',
+  },
+  buttonSecondary: {
+    backgroundColor: '#f3f4f6',
+  },
+  buttonSecondaryText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#374151',
+  },
+});
