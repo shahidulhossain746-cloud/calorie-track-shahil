@@ -1,0 +1,83 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import createContextHook from '@nkzw/create-context-hook';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { MealAnalysis, DailyProgress } from '../types';
+
+const MEALS_STORAGE_KEY = '@calorie_tracker_meals';
+
+export const [MealsContext, useMeals] = createContextHook(() => {
+  const [meals, setMeals] = useState<MealAnalysis[]>([]);
+
+  const mealsQuery = useQuery({
+    queryKey: ['meals'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(MEALS_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : [];
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (updatedMeals: MealAnalysis[]) => {
+      await AsyncStorage.setItem(MEALS_STORAGE_KEY, JSON.stringify(updatedMeals));
+      return updatedMeals;
+    },
+    onSuccess: (data) => {
+      setMeals(data);
+    },
+  });
+
+  const { mutate } = saveMutation;
+
+  useEffect(() => {
+    if (mealsQuery.data) {
+      setMeals(mealsQuery.data.map((m: any) => ({
+        ...m,
+        timestamp: new Date(m.timestamp),
+      })));
+    }
+  }, [mealsQuery.data]);
+
+  const addMeal = useCallback((meal: MealAnalysis) => {
+    const updatedMeals = [...meals, meal];
+    mutate(updatedMeals);
+  }, [meals, mutate]);
+
+  const deleteMeal = useCallback((id: string) => {
+    const updatedMeals = meals.filter(m => m.id !== id);
+    mutate(updatedMeals);
+  }, [meals, mutate]);
+
+  return useMemo(() => ({
+    meals,
+    addMeal,
+    deleteMeal,
+    isLoading: mealsQuery.isLoading,
+  }), [meals, addMeal, deleteMeal, mealsQuery.isLoading]);
+});
+
+export function useTodayProgress(targetCalories: number): DailyProgress {
+  const { meals } = useMeals();
+  
+  return useMemo(() => {
+    const today = new Date().toDateString();
+    const todayMeals = meals.filter(m => 
+      new Date(m.timestamp).toDateString() === today
+    );
+
+    const totalCalories = todayMeals.reduce((sum, m) => sum + m.calories, 0);
+    const totalProtein = todayMeals.reduce((sum, m) => sum + m.protein, 0);
+    const totalCarbs = todayMeals.reduce((sum, m) => sum + m.carbs, 0);
+    const totalFat = todayMeals.reduce((sum, m) => sum + m.fat, 0);
+
+    return {
+      date: today,
+      totalCalories,
+      totalProtein,
+      totalCarbs,
+      totalFat,
+      meals: todayMeals,
+      targetCalories,
+    };
+  }, [meals, targetCalories]);
+}
